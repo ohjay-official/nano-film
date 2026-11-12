@@ -1,0 +1,71 @@
+name: on-device-demo
+
+# Manual only. Public so the job runs on a 4 vCPU / 16 GB runner.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-on-device:
+    name: Live site on-device
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Machine facts
+        run: |
+          echo "cpus: $(nproc)"; free -h; df -h / /mnt || true
+          google-chrome --version
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h / /mnt || true
+
+      - name: Pick profile volume
+        run: |
+          if sudo mkdir -p /mnt/nano && sudo chown "$USER" /mnt/nano; then
+            echo "PROFILE_DIR=/mnt/nano/profile" >> "$GITHUB_ENV"
+          else
+            echo "PROFILE_DIR=$RUNNER_TEMP/nano-profile" >> "$GITHUB_ENV"
+          fi
+
+      - name: Install ffmpeg and xvfb
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg xvfb >/dev/null
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install e2e deps
+        working-directory: e2e
+        run: npm ci
+
+      - name: Run on-device demo
+        working-directory: e2e
+        env:
+          SITE_URL: https://did-i-order-this.vercel.app/
+          PROBE_TIMEOUT_MIN: "15"
+        run: bash run-ci.sh
+
+      - name: Summary
+        if: always()
+        working-directory: e2e
+        run: |
+          {
+            echo '## On-device demo'
+            echo '```json'
+            node -e "const d=require('./out/result.json'); const pick=x=>({label:x&&x.label,outcome:x&&x.outcome,headline:x&&x.headline,consentShown:x&&x.consentShown,usedSample:x&&x.usedSample}); console.log(JSON.stringify({chrome:d.version&&d.version.Browser,warmup:d.warmup||null,hostedAvailability:d.hostedAvailability||null,hosted:pick(d.hosted),fatal:d.fatal||null},null,2))" || echo 'no result.json'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: on-device-demo-out
+          path: e2e/out
+          retention-days: 14
+          if-no-files-found: warn

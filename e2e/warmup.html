@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Nano warmup</title>
+<style>
+  body { font: 16px/1.45 system-ui, sans-serif; margin: 24px; color: #111; background: #fff; }
+  button { font: inherit; padding: 8px 14px; border: 1px solid #111; background: #fff; cursor: pointer; }
+  pre { background: #f4f4f2; padding: 12px; white-space: pre-wrap; border: 1px solid #ddd; }
+</style>
+</head>
+<body>
+<h1>On-device model warmup</h1>
+<p>Downloads Gemini Nano (text) in this Chrome profile before the live-site check.</p>
+<button id="go">Start warmup</button>
+<pre id="log">waiting for click</pre>
+<script>
+  const out = { steps: [], ua: navigator.userAgent };
+  const logEl = document.getElementById("log");
+  function log(msg) {
+    const line = new Date().toISOString().slice(11, 19) + "  " + msg;
+    out.steps.push(line);
+    logEl.textContent = out.steps.join("\n");
+  }
+  window.__probe = out;
+  document.getElementById("go").addEventListener("click", async () => {
+    try {
+      if (!("LanguageModel" in self)) {
+        out.result = "no-LanguageModel-global";
+        log("LanguageModel is not defined");
+        return;
+      }
+      // Same calls as ohjay-official/nano-probe. Do not pass createOptions
+      // here; the proven runner path used the API defaults.
+      let before = await LanguageModel.availability();
+      log("availability(): " + before);
+      const waitStart = Date.now();
+      while (before === "unavailable" && Date.now() - waitStart < 60_000) {
+        log("backend not ready, retrying availability");
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        before = await LanguageModel.availability();
+        log("availability(): " + before);
+      }
+      const textOnly = await LanguageModel.availability({
+        expectedInputs: [{ type: "text", languages: ["en"] }],
+        expectedOutputs: [{ type: "text", languages: ["en"] }],
+      }).catch((err) => String(err));
+      const withImage = await LanguageModel.availability({
+        expectedInputs: [{ type: "text", languages: ["en"] }, { type: "image" }],
+        expectedOutputs: [{ type: "text", languages: ["en"] }],
+      }).catch((err) => String(err));
+      out.availabilityBefore = before;
+      out.availabilityTextOnly = textOnly;
+      out.availabilityWithImage = withImage;
+      log("availability(text): " + textOnly);
+      log("availability(text+image): " + withImage);
+      if (before === "unavailable") {
+        out.result = "unavailable";
+        return;
+      }
+      const t0 = performance.now();
+      const session = await LanguageModel.create({
+        monitor(m) {
+          m.addEventListener("downloadprogress", (e) => {
+            out.lastProgress = e.loaded;
+            log("download progress: " + Math.round(e.loaded * 100) + "%");
+          });
+        },
+      });
+      out.createMs = Math.round(performance.now() - t0);
+      out.availabilityAfter = await LanguageModel.availability();
+      log("session ready after " + out.createMs + " ms; availability=" + out.availabilityAfter);
+      const t1 = performance.now();
+      const answer = await session.prompt("Reply with the single word ok. No other text.");
+      out.promptMs = Math.round(performance.now() - t1);
+      out.answer = answer;
+      log("prompt took " + out.promptMs + " ms: " + answer);
+      out.result = "on-device-ok";
+    } catch (err) {
+      out.result = "error";
+      out.error = String(err && (err.stack || err.message || err));
+      log("ERROR: " + out.error);
+    } finally {
+      out.done = true;
+    }
+  });
+</script>
+</body>
+</html>
