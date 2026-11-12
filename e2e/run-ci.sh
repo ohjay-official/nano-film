@@ -14,7 +14,7 @@ node on-device.mjs \
   "$(command -v google-chrome)" \
   "${PROFILE_DIR:-/tmp/nano-profile}" \
   ./out \
-  "${SITE_URL:-https://did-i-order-this.vercel.app/}" \
+  "${SITE_URL:-https://did-i-order-this.vercel.app/app/}" \
   "${EXTENSION_DIR:-}" \
   "${PROBE_TIMEOUT_MIN:-15}"
 CODE=$?

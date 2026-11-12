@@ -16,7 +16,7 @@ const [
   chromeBin = "google-chrome",
   profileDir = "/tmp/nano-profile",
   outDir = path.join(here, "out"),
-  siteUrl = "https://did-i-order-this.vercel.app/",
+  siteUrl = "https://did-i-order-this.vercel.app/app/",
   extensionDir = "",
   timeoutArg = "15",
 ] = process.argv.slice(2);

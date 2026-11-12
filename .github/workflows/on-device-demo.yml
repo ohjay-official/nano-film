@@ -47,7 +47,7 @@ jobs:
       - name: Run on-device demo
         working-directory: e2e
         env:
-          SITE_URL: https://did-i-order-this.vercel.app/
+          SITE_URL: https://did-i-order-this.vercel.app/app/
           PROBE_TIMEOUT_MIN: "15"
         run: bash run-ci.sh
 
