@@ -21,6 +21,7 @@ const [
   timeoutArg = "15",
 ] = process.argv.slice(2);
 const timeoutMs = Number(timeoutArg) * 60_000;
+const skipHosted = process.env.SKIP_HOSTED === "1";
 
 await mkdir(outDir, { recursive: true });
 await mkdir(profileDir, { recursive: true });
@@ -227,8 +228,11 @@ function attachLogs(page, bucket) {
 async function readCheck(page) {
   return page.evaluate(() => {
     const text = document.body?.innerText || "";
+    const label = document.querySelector(".source-label")?.textContent?.trim() || null;
     return {
-      label: document.querySelector(".source-label")?.textContent?.trim() || null,
+      label,
+      inferenceSource:
+        label === "Checked on this device" ? "on_device" : label === "Checked in the cloud" ? "in_cloud" : null,
       outcome: document.querySelector(".outcome")?.textContent?.trim() || null,
       headline: document.querySelector(".headline, .result h2")?.textContent?.trim() || null,
       consentShown: Boolean(document.querySelector("[data-action=consent-yes]")),
@@ -279,6 +283,7 @@ const result = {
   startedAt: new Date().toISOString(),
   siteUrl,
   chromeBin,
+  skipHosted,
 };
 let browser;
 try {
@@ -357,20 +362,24 @@ try {
   context = browser.contexts()[0];
   page = context.pages()[0] || (await context.newPage());
 
-  await page.goto(siteUrl, { waitUntil: "domcontentloaded", timeout: 60_000 });
-  attachLogs(page, "hostedConsole");
-  await page.waitForSelector("[data-action=check]", { timeout: 30_000 });
-  result.hostedAvailability = await readAvailability(page);
-  console.log("HOSTED AVAILABILITY:", JSON.stringify(result.hostedAvailability));
-  const dhl = page.locator('[data-thread="thread-1-carrier-lure"]');
-  if (await dhl.count()) await dhl.click();
-  await page.click("[data-action=check]");
-  const hostedDeadline = Date.now() + Math.min(timeoutMs, 6 * 60_000);
-  result.hosted = await waitForCheck(page, hostedDeadline, "hosted");
-  await snap(page, "hosted-inbox.png");
-  console.log("HOSTED LABEL:", result.hosted.label || "(none)");
-  if (result.hosted.headline) console.log("HOSTED HEADLINE:", result.hosted.headline);
-  if (result.hosted.outcome) console.log("HOSTED OUTCOME:", result.hosted.outcome);
+  if (!skipHosted) {
+    await page.goto(siteUrl, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    attachLogs(page, "hostedConsole");
+    await page.waitForSelector("[data-action=check]", { timeout: 30_000 });
+    result.hostedAvailability = await readAvailability(page);
+    console.log("HOSTED AVAILABILITY:", JSON.stringify(result.hostedAvailability));
+    const dhl = page.locator('[data-thread="thread-1-carrier-lure"]');
+    if (await dhl.count()) await dhl.click();
+    await page.click("[data-action=check]");
+    const hostedDeadline = Date.now() + Math.min(timeoutMs, 6 * 60_000);
+    result.hosted = await waitForCheck(page, hostedDeadline, "hosted");
+    await snap(page, "hosted-inbox.png");
+    console.log("HOSTED LABEL:", result.hosted.label || "(none)");
+    if (result.hosted.headline) console.log("HOSTED HEADLINE:", result.hosted.headline);
+    if (result.hosted.outcome) console.log("HOSTED OUTCOME:", result.hosted.outcome);
+  } else if (!wantExtension) {
+    throw new Error("SKIP_HOSTED=1 requires an unpacked extension directory");
+  }
 
   if (wantExtension && result.extensionId) {
     const fixture = await context.newPage();
@@ -407,7 +416,14 @@ try {
     await snap(panel, "extension-sidepanel.png");
     await snap(fixture, "gmail-fixture.png");
     console.log("EXTENSION LABEL:", result.extension?.label || "(none)");
+    if (result.extension?.inferenceSource) console.log("EXTENSION SOURCE:", result.extension.inferenceSource);
     if (result.extension?.headline) console.log("EXTENSION HEADLINE:", result.extension.headline);
+    try {
+      const manifest = JSON.parse(await readFile(path.join(extensionDir, "manifest.json"), "utf8"));
+      result.extensionMatches = (manifest.content_scripts || []).flatMap((entry) => entry.matches || []);
+    } catch (error) {
+      result.extensionManifestError = String(error && (error.message || error));
+    }
   }
 
   await screenshotInternals(context, "on-device-internals.png");
@@ -423,15 +439,19 @@ try {
 }
 
 const hostedOk =
-  result.hosted?.label === "Checked on this device" &&
-  result.hosted?.consentShown !== true &&
-  result.hosted?.usedSample !== true;
+  skipHosted ||
+  (result.hosted?.label === "Checked on this device" &&
+    result.hosted?.inferenceSource === "on_device" &&
+    result.hosted?.consentShown !== true &&
+    result.hosted?.usedSample !== true);
 const extensionOk =
-  !wantExtension || result.extension?.label === "Checked on this device";
-if (!hostedOk) {
+  !wantExtension ||
+  (result.extension?.label === "Checked on this device" &&
+    result.extension?.inferenceSource === "on_device");
+if (!skipHosted && !hostedOk) {
   console.log("HOSTED CHECK FAILED: expected Checked on this device");
 }
 if (wantExtension && !extensionOk) {
-  console.log("EXTENSION CHECK FAILED: expected Checked on this device");
+  console.log("EXTENSION CHECK FAILED: expected Checked on this device and inferenceSource on_device");
 }
 process.exit(hostedOk && extensionOk ? 0 : 1);
