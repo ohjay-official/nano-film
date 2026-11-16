@@ -1,0 +1,39 @@
+name: uptime
+
+# Checks the judged live site every 30 minutes through judging (ends 16 Dec 2026).
+# A failed scheduled run makes GitHub notify the account that last changed this
+# cron (email, and GitHub Mobile if notifications are on). No secrets are used.
+
+on:
+  schedule:
+    - cron: "7,37 * * * *"
+  workflow_dispatch:
+    inputs:
+      extra_path:
+        description: "Extra path that must return 200 (use a missing path to test the alert)"
+        required: false
+        default: ""
+
+permissions: {}
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe live routes
+        env:
+          SITE: https://did-i-order-this.vercel.app
+          EXTRA: ${{ inputs.extra_path }}
+        run: |
+          fail=0
+          paths="/ /app/ /extension-demo/ /downloads/did-i-order-this-extension-0.1.0.zip"
+          if [ -n "$EXTRA" ]; then paths="$paths $EXTRA"; fi
+          for p in $paths; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 --retry 2 --retry-delay 5 "$SITE$p")
+            echo "$code $p"
+            [ "$code" = "200" ] || fail=1
+          done
+          body=$(curl -s --max-time 20 "$SITE/app/")
+          if echo "$body" | grep -q "Sample inbox"; then echo "ok /app/ text"; else echo "missing Sample inbox text on /app/"; fail=1; fi
+          exit $fail
