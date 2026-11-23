@@ -22,6 +22,19 @@ const [
 ] = process.argv.slice(2);
 const timeoutMs = Number(timeoutArg) * 60_000;
 const skipHosted = process.env.SKIP_HOSTED === "1";
+// EXTRA_SCENARIOS=1 adds two more on-device checks on /app/ after the DHL one:
+// the genuine UPS thread once the matching shipment is stored (expected Safe),
+// and a pasted fee email that cites that same tracking number from a sender
+// that is not ups.com (expected Warning, as a leaked number).
+const extraScenarios = process.env.EXTRA_SCENARIOS === "1";
+const LEAKED_FEE_EMAIL = [
+  "From: UPS <billing@ups-release.example>",
+  "Subject: UPS: a fee is due for 1Z999AA10123456784",
+  "",
+  "Your UPS parcel 1Z999AA10123456784 is held at our depot.",
+  "A customs fee of 2.99 must be paid before delivery.",
+  "Pay the fee here: https://ups-release.example/pay",
+].join("\n");
 
 await mkdir(outDir, { recursive: true });
 await mkdir(profileDir, { recursive: true });
@@ -267,6 +280,35 @@ async function waitForCheck(page, deadline, snapPrefix) {
   return readCheck(page);
 }
 
+async function waitForClearedResult(page) {
+  await page
+    .waitForFunction(() => !document.querySelector(".source-label"), null, { timeout: 15_000 })
+    .catch(() => {});
+}
+
+async function runExtraScenarios(page, timeoutMs) {
+  const demo = page.locator("[data-action=load-shipment-demo]");
+  result.shipmentDemoLoaded = (await demo.count()) > 0;
+  if (result.shipmentDemoLoaded) {
+    await demo.click();
+    await page.waitForSelector("[data-action=load-shipment-demo]", { state: "detached", timeout: 15_000 }).catch(() => {});
+  }
+  await page.click('[data-thread="thread-3-safe-carrier"]');
+  await waitForClearedResult(page);
+  await page.click("[data-action=check]");
+  result.upsSafe = await waitForCheck(page, Date.now() + Math.min(timeoutMs, 4 * 60_000), "ups-safe");
+  await snap(page, "ups-safe.png");
+  console.log("UPS SAFE:", JSON.stringify({ label: result.upsSafe.label, outcome: result.upsSafe.outcome, headline: result.upsSafe.headline }));
+
+  await page.fill("[data-paste]", LEAKED_FEE_EMAIL);
+  await page.click("[data-action=check-paste]");
+  await waitForClearedResult(page);
+  result.leakedFee = await waitForCheck(page, Date.now() + Math.min(timeoutMs, 4 * 60_000), "leaked-fee");
+  result.leakedFeeEmail = LEAKED_FEE_EMAIL;
+  await snap(page, "leaked-fee.png");
+  console.log("LEAKED FEE:", JSON.stringify({ label: result.leakedFee.label, outcome: result.leakedFee.outcome, headline: result.leakedFee.headline }));
+}
+
 async function screenshotInternals(context, name = "on-device-internals.png") {
   try {
     const internals = await context.newPage();
@@ -377,6 +419,7 @@ try {
     console.log("HOSTED LABEL:", result.hosted.label || "(none)");
     if (result.hosted.headline) console.log("HOSTED HEADLINE:", result.hosted.headline);
     if (result.hosted.outcome) console.log("HOSTED OUTCOME:", result.hosted.outcome);
+    if (extraScenarios) await runExtraScenarios(page, timeoutMs);
   } else if (!wantExtension) {
     throw new Error("SKIP_HOSTED=1 requires an unpacked extension directory");
   }
@@ -444,6 +487,12 @@ const hostedOk =
     result.hosted?.inferenceSource === "on_device" &&
     result.hosted?.consentShown !== true &&
     result.hosted?.usedSample !== true);
+const onDevice = (x) => x?.label === "Checked on this device" && x?.inferenceSource === "on_device" && x?.consentShown !== true && x?.usedSample !== true;
+const extraOk =
+  !extraScenarios ||
+  (onDevice(result.upsSafe) && /^safe$/i.test(result.upsSafe?.outcome || "") &&
+    onDevice(result.leakedFee) && /^warning$/i.test(result.leakedFee?.outcome || ""));
+if (!extraOk) console.log("EXTRA SCENARIOS FAILED: expected UPS Safe and leaked fee Warning, both on this device");
 const extensionOk =
   !wantExtension ||
   (result.extension?.label === "Checked on this device" &&
@@ -454,4 +503,4 @@ if (!skipHosted && !hostedOk) {
 if (wantExtension && !extensionOk) {
   console.log("EXTENSION CHECK FAILED: expected Checked on this device and inferenceSource on_device");
 }
-process.exit(hostedOk && extensionOk ? 0 : 1);
+process.exit(hostedOk && extensionOk && extraOk ? 0 : 1);
