@@ -73,5 +73,5 @@ jobs:
         with:
           name: extension-on-device-out
           path: e2e/out
-          retention-days: 14
+          retention-days: 90
           if-no-files-found: warn
