@@ -26,7 +26,9 @@ const skipHosted = process.env.SKIP_HOSTED === "1";
 // the genuine UPS thread once the matching shipment is stored (expected Safe),
 // and a pasted fee email that cites that same tracking number from a sender
 // that is not ups.com, after importing that number as the user's own expected
-// parcel (expected Warning with the leaked-number headline).
+// parcel (expected Warning with the leaked-number headline), then a pasted
+// clean UPS email from ups.com citing that number (expected Neutral: a pasted
+// email can't prove who sent it, so a match stops at Neutral since round 3).
 const extraScenarios = process.env.EXTRA_SCENARIOS === "1";
 const LEAKED_FEE_EMAIL = [
   "From: UPS <billing@ups-release.example>",
@@ -39,6 +41,14 @@ const LEAKED_FEE_EMAIL = [
 const PROOF_ORDERS_CSV =
   "order_id,merchant,date,amount,currency,tracking,domain\n" +
   "PROOF-1,Proof Outfitters,2026-11-20,24.00,USD,1Z999AA10123456784,proof-outfitters.example\n";
+const PASTED_UPS_EMAIL = [
+  "From: UPS <mcinfo@ups.com>",
+  "Subject: UPS Update: your package 1Z999AA10123456784 is on the way",
+  "",
+  "Your UPS parcel 1Z999AA10123456784 is on its way and is scheduled to arrive tomorrow.",
+  "You can follow it in the UPS app.",
+].join("\n");
+const PASTED_HEADLINE = "This number matches your parcel, but a pasted email can't prove who sent it. Open your parcel in the carrier's app.";
 const LEAKED_HEADLINE = "This tracking number matches your shipment, but this email is not from the carrier's official domain.";
 
 await mkdir(outDir, { recursive: true });
@@ -324,6 +334,14 @@ async function runExtraScenarios(page, timeoutMs) {
   result.leakedFeeEmail = LEAKED_FEE_EMAIL;
   await snap(page, "leaked-fee.png");
   console.log("LEAKED FEE:", JSON.stringify({ label: result.leakedFee.label, outcome: result.leakedFee.outcome, headline: result.leakedFee.headline }));
+
+  await page.fill("[data-paste]", PASTED_UPS_EMAIL);
+  await page.click("[data-action=check-paste]");
+  await waitForClearedResult(page);
+  result.pastedUps = await waitForCheck(page, Date.now() + Math.min(timeoutMs, 4 * 60_000), "pasted-ups");
+  result.pastedUpsEmail = PASTED_UPS_EMAIL;
+  await snap(page, "pasted-ups.png");
+  console.log("PASTED UPS:", JSON.stringify({ label: result.pastedUps.label, outcome: result.pastedUps.outcome, headline: result.pastedUps.headline }));
 }
 
 async function screenshotInternals(context, name = "on-device-internals.png") {
@@ -509,8 +527,10 @@ const extraOk =
   !extraScenarios ||
   (onDevice(result.upsSafe) && /^safe$/i.test(result.upsSafe?.outcome || "") &&
     onDevice(result.leakedFee) && /^warning$/i.test(result.leakedFee?.outcome || "") &&
-    result.leakedFee?.headline === LEAKED_HEADLINE);
-if (!extraOk) console.log("EXTRA SCENARIOS FAILED: expected UPS Safe and the leaked-number Warning, both on this device");
+    result.leakedFee?.headline === LEAKED_HEADLINE &&
+    onDevice(result.pastedUps) && /^neutral$/i.test(result.pastedUps?.outcome || "") &&
+    result.pastedUps?.headline === PASTED_HEADLINE);
+if (!extraOk) console.log("EXTRA SCENARIOS FAILED: expected UPS Safe, the leaked-number Warning and the pasted-UPS Neutral, all on this device");
 const extensionOk =
   !wantExtension ||
   (result.extension?.label === "Checked on this device" &&
