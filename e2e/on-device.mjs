@@ -25,7 +25,8 @@ const skipHosted = process.env.SKIP_HOSTED === "1";
 // EXTRA_SCENARIOS=1 adds two more on-device checks on /app/ after the DHL one:
 // the genuine UPS thread once the matching shipment is stored (expected Safe),
 // and a pasted fee email that cites that same tracking number from a sender
-// that is not ups.com (expected Warning, as a leaked number).
+// that is not ups.com, after importing that number as the user's own expected
+// parcel (expected Warning with the leaked-number headline).
 const extraScenarios = process.env.EXTRA_SCENARIOS === "1";
 const LEAKED_FEE_EMAIL = [
   "From: UPS <billing@ups-release.example>",
@@ -35,6 +36,10 @@ const LEAKED_FEE_EMAIL = [
   "A customs fee of 2.99 must be paid before delivery.",
   "Pay the fee here: https://ups-release.example/pay",
 ].join("\n");
+const PROOF_ORDERS_CSV =
+  "order_id,merchant,date,amount,currency,tracking,domain\n" +
+  "PROOF-1,Proof Outfitters,2026-11-20,24.00,USD,1Z999AA10123456784,proof-outfitters.example\n";
+const LEAKED_HEADLINE = "This tracking number matches your shipment, but this email is not from the carrier's official domain.";
 
 await mkdir(outDir, { recursive: true });
 await mkdir(profileDir, { recursive: true });
@@ -300,6 +305,18 @@ async function runExtraScenarios(page, timeoutMs) {
   await snap(page, "ups-safe.png");
   console.log("UPS SAFE:", JSON.stringify({ label: result.upsSafe.label, outcome: result.upsSafe.outcome, headline: result.upsSafe.headline }));
 
+  // Pasted mail is checked against the person's own rows only, never demo
+  // rows, so store the same number as the user's own expected parcel first,
+  // through the page's own Import order history control.
+  await page.setInputFiles("[data-action=import]", {
+    name: "proof-orders.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(PROOF_ORDERS_CSV),
+  });
+  await page.waitForFunction(() => /Imported \d+ order/.test(document.body.innerText || ""), null, { timeout: 15_000 }).catch(() => {});
+  result.importNote = (await page.locator("body").innerText()).match(/Imported [^\n]*/)?.[0] || null;
+  result.ledgerLine = (await page.locator(".app-ledger").textContent().catch(() => null))?.trim() || null;
+  console.log("IMPORT:", result.importNote, "|", result.ledgerLine);
   await page.fill("[data-paste]", LEAKED_FEE_EMAIL);
   await page.click("[data-action=check-paste]");
   await waitForClearedResult(page);
@@ -491,8 +508,9 @@ const onDevice = (x) => x?.label === "Checked on this device" && x?.inferenceSou
 const extraOk =
   !extraScenarios ||
   (onDevice(result.upsSafe) && /^safe$/i.test(result.upsSafe?.outcome || "") &&
-    onDevice(result.leakedFee) && /^warning$/i.test(result.leakedFee?.outcome || ""));
-if (!extraOk) console.log("EXTRA SCENARIOS FAILED: expected UPS Safe and leaked fee Warning, both on this device");
+    onDevice(result.leakedFee) && /^warning$/i.test(result.leakedFee?.outcome || "") &&
+    result.leakedFee?.headline === LEAKED_HEADLINE);
+if (!extraOk) console.log("EXTRA SCENARIOS FAILED: expected UPS Safe and the leaked-number Warning, both on this device");
 const extensionOk =
   !wantExtension ||
   (result.extension?.label === "Checked on this device" &&
