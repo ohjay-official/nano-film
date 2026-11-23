@@ -64,7 +64,7 @@ jobs:
           {
             echo '## Extension on-device demo'
             echo '```json'
-            node -e "const d=require('./out/result.json'); const pick=x=>({label:x&&x.label,inferenceSource:x&&x.inferenceSource,outcome:x&&x.outcome,headline:x&&x.headline,consentShown:x&&x.consentShown}); console.log(JSON.stringify({chrome:d.version&&d.version.Browser,warmup:d.warmup||null,extensionAvailability:d.extensionAvailability||null,extensionReady:d.extensionReady||null,extension:pick(d.extension),extensionError:d.extensionError||null,fatal:d.fatal||null},null,2))" || echo 'no result.json'
+            node -e "const d=require('./out/result.json'); const pick=x=>({label:x&&x.label,inferenceSource:x&&x.inferenceSource,outcome:x&&x.outcome,headline:x&&x.headline,consentShown:x&&x.consentShown}); console.log(JSON.stringify({chrome:d.version&&d.version.Browser,extensionBuild:d.extensionBuild||null,warmup:d.warmup||null,extensionAvailability:d.extensionAvailability||null,extensionReady:d.extensionReady||null,extension:pick(d.extension),extensionError:d.extensionError||null,fatal:d.fatal||null},null,2))" || echo 'no result.json'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 

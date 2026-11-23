@@ -362,6 +362,25 @@ const result = {
   chromeBin,
   skipHosted,
 };
+// Record which commit is under test: the site publishes /build-info.json and
+// the extension zip carries build-info.json next to manifest.json.
+if (!skipHosted) {
+  try {
+    const res = await fetch(new URL("/build-info.json", siteUrl), { cache: "no-store" });
+    result.siteBuild = res.ok ? await res.json() : { error: `HTTP ${res.status}` };
+  } catch (error) {
+    result.siteBuild = { error: String(error && (error.message || error)) };
+  }
+  if (result.siteBuild?.sha) console.log("SITE BUILD:", result.siteBuild.sha);
+}
+if (extensionDir) {
+  try {
+    result.extensionBuild = JSON.parse(await readFile(path.join(extensionDir, "build-info.json"), "utf8"));
+  } catch (error) {
+    result.extensionBuild = { error: String(error && (error.message || error)) };
+  }
+  if (result.extensionBuild?.sha) console.log("EXTENSION BUILD:", result.extensionBuild.sha);
+}
 let browser;
 try {
   // Session 1: same Chrome flags and launch as nano-probe. Do not load the
