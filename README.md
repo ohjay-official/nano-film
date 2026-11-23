@@ -1,6 +1,6 @@
 # nano-film
 
-Throwaway filming probe. Public so GitHub Actions gives a 4 vCPU / 16 GB
+Filming probe and uptime monitor. Public so GitHub Actions gives a 4 vCPU / 16 GB
 runner, the size that already ran Gemini Nano in ohjay-official/nano-probe.
 
 A private-repo `ubuntu-latest` runner is 2 vCPU / 7.7 GB and cannot load
@@ -13,4 +13,6 @@ label. The extension job adds a local Gmail-fixture host to the installed
 manifest's content script matches, because the runner cannot sign into
 Gmail; the JavaScript in the zip is unchanged.
 
-Dispatch only. They do not run on push.
+The two filming workflows are dispatch only. `uptime.yml` also runs on a
+schedule (every 30 minutes, best effort) to probe the live site through
+judging, which ends 16 Dec 2026. Nothing runs on push.
