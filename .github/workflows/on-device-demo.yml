@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       extra_scenarios:
-        description: "Also check the genuine UPS thread (expected Safe) and a leaked-number fee email (expected Warning)"
+        description: "Also check the genuine UPS thread (expected Safe), a leaked-number fee email (expected Warning) and a pasted UPS email (expected Neutral)"
         type: boolean
         default: false
 
@@ -64,7 +64,7 @@ jobs:
           {
             echo '## On-device demo'
             echo '```json'
-            node -e "const d=require('./out/result.json'); const pick=x=>({label:x&&x.label,outcome:x&&x.outcome,headline:x&&x.headline,consentShown:x&&x.consentShown,usedSample:x&&x.usedSample}); console.log(JSON.stringify({chrome:d.version&&d.version.Browser,warmup:d.warmup||null,hostedAvailability:d.hostedAvailability||null,hosted:pick(d.hosted),upsSafe:d.upsSafe?pick(d.upsSafe):null,leakedFee:d.leakedFee?pick(d.leakedFee):null,fatal:d.fatal||null},null,2))" || echo 'no result.json'
+            node -e "const d=require('./out/result.json'); const pick=x=>({label:x&&x.label,outcome:x&&x.outcome,headline:x&&x.headline,consentShown:x&&x.consentShown,usedSample:x&&x.usedSample}); console.log(JSON.stringify({chrome:d.version&&d.version.Browser,warmup:d.warmup||null,hostedAvailability:d.hostedAvailability||null,hosted:pick(d.hosted),upsSafe:d.upsSafe?pick(d.upsSafe):null,leakedFee:d.leakedFee?pick(d.leakedFee):null,pastedUps:d.pastedUps?pick(d.pastedUps):null,fatal:d.fatal||null},null,2))" || echo 'no result.json'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
